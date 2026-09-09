@@ -157,6 +157,43 @@ with overview:
             chosen=status_selected[0].get("Status","Selected"); chosen_count=statuses.get(chosen,0)
             st.info(f"{chosen}: {chosen_count} of {len(accounts)} CRM accounts. Each slice is calculated by grouping the loaded CRM records by their current status field.")
         st.markdown('</div>',unsafe_allow_html=True)
+    visual_left,visual_right=st.columns(2)
+    with visual_left:
+        st.markdown('<div class="panel"><div class="pt">Reconciliation coverage</div><div class="ps">Website evidence compared with the CRM population</div>',unsafe_allow_html=True)
+        coverage_data=[{"Population":"Website locations","Count":len(locations)},{"Population":"Active CRM accounts","Count":active},{"Population":"All CRM accounts","Count":len(accounts)}]
+        coverage_pick=alt.selection_point(fields=["Population"],name="coverage_pick",on="click")
+        coverage_chart=alt.Chart(alt.Data(values=coverage_data)).mark_bar(cornerRadiusTopLeft=6,cornerRadiusTopRight=6,size=52).encode(
+            x=alt.X("Population:N",title=None,sort=["Website locations","Active CRM accounts","All CRM accounts"],axis=alt.Axis(labelAngle=0)),
+            y=alt.Y("Count:Q",title="Records",axis=alt.Axis(tickMinStep=1)),
+            color=alt.Color("Population:N",scale=alt.Scale(range=["#16ba86","#6c63ee","#f3b229"]),legend=None),
+            opacity=alt.condition(coverage_pick,alt.value(1),alt.value(.72)),tooltip=["Population:N","Count:Q"]
+        ).add_params(coverage_pick).properties(height=220)
+        coverage_event=st.altair_chart(coverage_chart,use_container_width=True,on_select="rerun",selection_mode="coverage_pick",key="coverage_chart")
+        coverage_selected=coverage_event.get("selection",{}).get("coverage_pick",[]) if coverage_event else []
+        if coverage_selected:
+            population=coverage_selected[0].get("Population","Selected"); count=next((x["Count"] for x in coverage_data if x["Population"]==population),0)
+            source={"Website locations":"live Bellhaven directory scraper","Active CRM accounts":"CRM records whose status is Active","All CRM accounts":"complete API or uploaded JSON response"}.get(population,"current scan")
+            st.info(f"{population}: {count}. This value comes from the {source}.")
+        st.markdown('</div>',unsafe_allow_html=True)
+    with visual_right:
+        st.markdown('<div class="panel"><div class="pt">Protected financial history</div><div class="ps">Value retained on CHOW predecessor records</div>',unsafe_allow_html=True)
+        chow_accounts=[a for a in accounts if a.get("chow_current_account")]
+        lifetime_value=sum(float(a.get("lifetime_revenue") or 0) for a in chow_accounts)
+        ar_value=sum(float(a.get("outstanding_ar") or 0) for a in chow_accounts)
+        finance_data=[{"Measure":"Lifetime revenue","Value":lifetime_value},{"Measure":"Outstanding AR","Value":ar_value}]
+        finance_pick=alt.selection_point(fields=["Measure"],name="finance_pick",on="click")
+        finance_chart=alt.Chart(alt.Data(values=finance_data)).mark_bar(cornerRadiusEnd=7,size=34).encode(
+            x=alt.X("Value:Q",title="Protected value",axis=alt.Axis(format="$,.0f")),
+            y=alt.Y("Measure:N",title=None,sort=["Lifetime revenue","Outstanding AR"]),
+            color=alt.Color("Measure:N",scale=alt.Scale(range=["#7857e8","#17b886"]),legend=None),
+            opacity=alt.condition(finance_pick,alt.value(1),alt.value(.72)),tooltip=["Measure:N",alt.Tooltip("Value:Q",format="$,.0f")]
+        ).add_params(finance_pick).properties(height=220)
+        finance_event=st.altair_chart(finance_chart,use_container_width=True,on_select="rerun",selection_mode="finance_pick",key="finance_chart")
+        finance_selected=finance_event.get("selection",{}).get("finance_pick",[]) if finance_event else []
+        if finance_selected:
+            measure=finance_selected[0].get("Measure","Selected"); value=next((x["Value"] for x in finance_data if x["Measure"]==measure),0)
+            st.info(f"{measure}: ${value:,.0f}, summed across {len(chow_accounts)} CRM predecessor record(s) containing a CHOW current-account link.")
+        st.markdown('</div>',unsafe_allow_html=True)
     st.markdown('<div class="section-kicker">How the system reached this answer</div>',unsafe_allow_html=True)
     left,mid,right=st.columns([1.1,1,1])
     with left:
