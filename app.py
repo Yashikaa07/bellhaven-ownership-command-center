@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+import altair as alt
 import streamlit as st
 from ownershipos.crm import CRMClient
 from ownershipos.matcher import apply_proposal, build_proposals, find_parent
@@ -26,6 +27,8 @@ h1,h2,h3{font-family:'Space Grotesk',sans-serif!important;letter-spacing:-.035em
 .answer{background:#f1faf7;border-left:3px solid #12aa7d;border-radius:7px;padding:13px;color:#43556a;font-size:13px;line-height:1.5;margin-top:12px}
 .guide{background:#f8fafc;border:1px solid #e3e9f1;border-radius:12px;padding:14px 16px;margin:10px 0 18px;color:#526277;font-size:13px}.guide b{color:#172033}.guide span{display:inline-block;background:#e8f7f2;color:#087a59;border-radius:20px;padding:4px 9px;margin:4px 5px 0 0;font-size:11px;font-weight:700}
 .aihead{display:flex;align-items:center;gap:10px}.aibadge{background:#e3f8f0;color:#07865f;border-radius:20px;padding:4px 9px;font-size:10px;font-weight:700;letter-spacing:.08em}.privacy{background:#f7f9fc;border:1px solid #e6ebf2;border-radius:9px;padding:9px 11px;color:#738196;font-size:11px;margin-top:12px}
+.brief{background:linear-gradient(135deg,#102a43,#153b56);border-radius:16px;padding:20px 22px;color:#fff;margin:18px 0}.brief-title{font:600 17px 'Space Grotesk';margin-bottom:12px}.brief-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.brief-item{border-left:2px solid #37d3a6;padding-left:12px}.brief-item b{display:block;color:#73e5c3;font-size:11px;text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px}.brief-item span{font-size:13px;line-height:1.4;color:#e8f1f6}
+.section-kicker{color:#07865f;font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;margin-top:18px}.empty-chart{height:220px;display:flex;align-items:center;justify-content:center;text-align:center;background:#f7fbf9;border:1px dashed #b8decf;border-radius:12px;color:#527065;font-size:13px}
 div[data-testid="stMetric"]{background:#f8fafc;border:1px solid #e4eaf1;padding:14px;border-radius:12px}div[data-testid="stExpander"]{background:#ffffff;border:1px solid #e0e7ef;border-radius:12px}.stButton>button{border-radius:9px;font-weight:700;border:1px solid #cbd6e2;background:#ffffff;color:#1d5f50}.stButton>button[kind="primary"]{background:#0f9d75;color:#ffffff;border:0}[data-testid="stAlert"]{border-radius:11px}button[data-baseweb="tab"]{color:#526277!important}button[data-baseweb="tab"][aria-selected="true"]{color:#087a59!important}hr{border-color:#e4eaf1!important}
 </style>""", unsafe_allow_html=True)
 
@@ -76,8 +79,43 @@ cards=[("Ownership health",f"{health}%","Post-reconciliation confidence","good" 
 for start in (0,3):
     for col,(label,value,note,cls) in zip(st.columns(3),cards[start:start+3]): col.markdown(f'<div class="card"><div class="label">{label}</div><div class="value {cls}">{value}</div><div class="note">{note}</div></div>',unsafe_allow_html=True)
 
-overview, review, lineage, audit = st.tabs(["Command Center",f"Review Queue ({len(proposals)})","Ownership Lineage","Audit & Export"])
+overview, review, lineage, audit = st.tabs(["Executive Dashboard",f"Review Queue ({len(proposals)})","Ownership Lineage","Audit & Export"])
 with overview:
+    top_risk = next((r for r in ("Critical","High","Medium","Low") if any(p["risk"]==r for p in proposals)), "None")
+    decision_message = f"{len(proposals)} decisions need human review" if proposals else "No unresolved ownership decisions"
+    st.markdown(f'''<div class="brief"><div class="brief-title">Executive briefing · What this run means</div><div class="brief-grid">
+    <div class="brief-item"><b>What happened</b><span>{len(locations)} locations were reconciled against {len(accounts)} CRM records.</span></div>
+    <div class="brief-item"><b>What needs attention</b><span>{decision_message}. Highest current risk: {top_risk}.</span></div>
+    <div class="brief-item"><b>What is protected</b><span>{chow_links} financial lineage links and {duplicates} duplicate controls remain preserved.</span></div>
+    </div></div>''',unsafe_allow_html=True)
+    st.markdown('<div class="section-kicker">Decision intelligence</div>',unsafe_allow_html=True)
+    chart_left, chart_right = st.columns(2)
+    with chart_left:
+        st.markdown('<div class="panel"><div class="pt">Open decisions by risk</div><div class="ps">Where a reviewer should focus first</div>',unsafe_allow_html=True)
+        risk_order=["Critical","High","Medium","Low"]
+        risk_data=[{"Risk":r,"Decisions":sum(p["risk"]==r for p in proposals),"Order":i} for i,r in enumerate(risk_order)]
+        if proposals:
+            risk_chart=alt.Chart(alt.Data(values=risk_data)).mark_bar(cornerRadiusEnd=5,size=28).encode(
+                x=alt.X("Decisions:Q",title="Open decisions",axis=alt.Axis(tickMinStep=1)),
+                y=alt.Y("Risk:N",sort=risk_order,title=None),
+                color=alt.Color("Risk:N",scale=alt.Scale(domain=risk_order,range=["#dc4c4c","#ec8d3c","#e2b33c","#5c8fd6"]),legend=None),
+                tooltip=["Risk:N","Decisions:Q"]
+            ).properties(height=220)
+            st.altair_chart(risk_chart,use_container_width=True)
+        else: st.markdown('<div class="empty-chart"><b>✓ No open risk</b><br>The reconciliation is complete.</div>',unsafe_allow_html=True)
+        st.markdown('</div>',unsafe_allow_html=True)
+    with chart_right:
+        st.markdown('<div class="panel"><div class="pt">CRM account composition</div><div class="ps">Operational state of the account universe</div>',unsafe_allow_html=True)
+        statuses=Counter(str(a.get("status") or "Unknown").title() for a in accounts)
+        status_data=[{"Status":k,"Accounts":v} for k,v in statuses.items()]
+        donut=alt.Chart(alt.Data(values=status_data)).mark_arc(innerRadius=58,outerRadius=92).encode(
+            theta=alt.Theta("Accounts:Q"),
+            color=alt.Color("Status:N",scale=alt.Scale(range=["#11a579","#6f86a5","#efb34c","#d75b63","#8b6fc2"]),legend=alt.Legend(title=None,orient="bottom")),
+            tooltip=["Status:N","Accounts:Q"]
+        ).properties(height=220)
+        st.altair_chart(donut,use_container_width=True)
+        st.markdown('</div>',unsafe_allow_html=True)
+    st.markdown('<div class="section-kicker">How the system reached this answer</div>',unsafe_allow_html=True)
     left,mid,right=st.columns([1.1,1,1])
     with left:
         st.markdown('<div class="panel"><div class="pt">Agent run</div><div class="ps">Every stage produces inspectable evidence</div>',unsafe_allow_html=True)
@@ -152,4 +190,3 @@ if st.button("Apply approved changes",disabled=not(confirm and token and pending
     client=CRMClient(API,token); progress=st.progress(0)
     for i,p in enumerate(pending,1): result=apply_proposal(client,p); store.mark_applied(p["fingerprint"],result); progress.progress(i/len(pending))
     st.success("Approved changes were applied and recorded in the audit ledger.")
-
