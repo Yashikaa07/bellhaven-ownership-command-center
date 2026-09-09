@@ -53,10 +53,6 @@ The Streamlit interface is organized as an operating system rather than a raw re
 - **Audit & Export:** human decision ledger and downloadable final evidence snapshot
 - **Ownership Copilot:** deterministic, evidence-grounded explanations of priority, CHOW policy, and rerun safety
 
-## Daily schedule
-
-`.github/workflows/daily.yml` runs the read-only scan daily at 11:17 UTC and uploads its report. Production credentials belong in the `CRM_AUTHORIZATION` repository secret. Scheduled automation deliberately does not approve or apply changes.
-
 ## AI usage
 
 AI was used as an implementation accelerator and reviewer. Business rules, match weights, API actions, and final CRM decisions were independently inspected and tested. Deterministic logic—not an LLM—controls financially sensitive recommendations.
@@ -72,3 +68,4 @@ AI was used as an implementation accelerator and reviewer. Business rules, match
 ## Walkthrough demo path
 
 Show one clean match, one rebrand, one duplicate, one absent website record, and one CHOW case. Explain the evidence, preview the mutation, approve it, rescan, and demonstrate that the decided proposal does not return.
+
