@@ -33,6 +33,27 @@ div[data-testid="stMetric"]{background:#f8fafc;border:1px solid #e4eaf1;padding:
 </style>""", unsafe_allow_html=True)
 
 store = DecisionStore()
+
+def run_ownership_scan():
+    with st.spinner("Agents are collecting and reconciling ownership evidence…"):
+        locations, warnings = scrape_locations(BASE)
+        if uploaded:
+            raw = json.load(uploaded)
+            accounts = raw if isinstance(raw, list) else next((raw[k] for k in ("accounts","items","results","data") if isinstance(raw.get(k), list)), [])
+            accounts = [{**a, "id": a.get("id") or a.get("account_id") or a.get("accountId")} for a in accounts]
+        elif token:
+            accounts = CRMClient(API, token).list_accounts()
+        else:
+            st.error("Enter the CRM token or upload a snapshot.")
+            return False
+        parent = find_parent(accounts)
+        if not parent:
+            st.error("Bellhaven parent account was not identified.")
+            return False
+        proposals = [p for p in build_proposals(locations, accounts, str(parent["id"])) if not store.decided(p["fingerprint"])]
+        st.session_state.update(locations=locations, accounts=accounts, parent=parent, proposals=proposals, warnings=warnings)
+        return True
+
 with st.sidebar:
     st.markdown('<div class="brand"><span class="pulse"></span>OwnershipOS</div>', unsafe_allow_html=True)
     st.caption("Bellhaven command center")
@@ -45,18 +66,7 @@ with st.sidebar:
         st.markdown("**1.** Add a credential or JSON snapshot\n\n**2.** Run the ownership agent\n\n**3.** Review flagged decisions\n\n**4.** Approve only verified changes\n\n**5.** Apply and rerun to confirm zero drift")
 
 if scan:
-    with st.spinner("Agents are collecting and reconciling ownership evidence…"):
-        locations, warnings = scrape_locations(BASE)
-        if uploaded:
-            raw = json.load(uploaded)
-            accounts = raw if isinstance(raw, list) else next((raw[k] for k in ("accounts","items","results","data") if isinstance(raw.get(k), list)), [])
-            accounts = [{**a, "id": a.get("id") or a.get("account_id") or a.get("accountId")} for a in accounts]
-        elif token: accounts = CRMClient(API, token).list_accounts()
-        else: st.error("Enter the CRM token or upload a snapshot."); st.stop()
-        parent = find_parent(accounts)
-        if not parent: st.error("Bellhaven parent account was not identified."); st.stop()
-        proposals = [p for p in build_proposals(locations, accounts, str(parent["id"])) if not store.decided(p["fingerprint"])]
-        st.session_state.update(locations=locations, accounts=accounts, parent=parent, proposals=proposals, warnings=warnings)
+    run_ownership_scan()
 
 st.markdown('<div class="eyebrow">Revenue intelligence / ownership integrity</div><div class="hero">Bellhaven Ownership Command Center</div><div class="sub">An explainable agent system that detects ownership drift, protects billing history, and gives humans final control.</div>', unsafe_allow_html=True)
 if "proposals" not in st.session_state:
@@ -221,10 +231,18 @@ with audit:
             st.markdown(f"**Approved ({approved_count}):** rows whose decision equals Approved.\n\n**Rejected ({rejected_count}):** rows whose decision equals Rejected.\n\n**Applied ({applied_count}):** approved rows with a non-empty `applied_at` timestamp.")
         st.dataframe(audit_rows,use_container_width=True,hide_index=True)
     else:
-        st.info("No decisions have been recorded in this local workspace yet. Run the agent, open Review Queue, and approve or reject a proposal to create the first audit entry.")
-        e1,e2=st.columns(2)
-        e1.button("1 · Run ownership agent from sidebar",disabled=True,use_container_width=True)
-        e2.button("2 · Review and decide proposals",disabled=True,use_container_width=True)
+        st.info("No decisions have been recorded in this local workspace yet. The ledger starts when a reviewer approves or rejects a proposal; an empty ledger does not mean the scan failed.")
+        e1,e2,e3=st.columns(3)
+        if e1.button("↻ Run a new scan",type="primary",use_container_width=True,key="audit_rescan"):
+            if run_ownership_scan():
+                st.success("Scan refreshed. Open Review Queue to inspect the latest decisions.")
+                st.rerun()
+        if e2.button("→ Review decisions",use_container_width=True,key="audit_review_help"):
+            st.session_state.audit_review_hint=True
+        e3.download_button("↓ Download current snapshot",data=json.dumps({"accounts":accounts},indent=2,default=str),file_name="crm_accounts_current.json",mime="application/json",use_container_width=True)
+        if st.session_state.get("audit_review_hint"):
+            if proposals: st.warning(f"Open the **Review Queue ({len(proposals)})** tab above. Start with Critical items, inspect the evidence, then click Approve or Reject.")
+            else: st.success("There are currently zero decisions to review. Run a new scan after the CRM or website data changes.")
 
 st.divider(); pending=store.pending_approvals(); st.subheader("Controlled write-back"); st.caption(f"{len(pending)} approved proposal(s) waiting. Credentials exist only in this browser session.")
 with st.popover("ⓘ Why this button is controlled"):
