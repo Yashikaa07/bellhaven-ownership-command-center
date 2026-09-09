@@ -29,6 +29,7 @@ h1,h2,h3{font-family:'Space Grotesk',sans-serif!important;letter-spacing:-.035em
 .aihead{display:flex;align-items:center;gap:10px}.aibadge{background:#e3f8f0;color:#07865f;border-radius:20px;padding:4px 9px;font-size:10px;font-weight:700;letter-spacing:.08em}.privacy{background:#f7f9fc;border:1px solid #e6ebf2;border-radius:9px;padding:9px 11px;color:#738196;font-size:11px;margin-top:12px}
 .brief{background:linear-gradient(135deg,#102a43,#153b56);border-radius:16px;padding:20px 22px;color:#fff;margin:18px 0}.brief-title{font:600 17px 'Space Grotesk';margin-bottom:12px}.brief-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.brief-item{border-left:2px solid #37d3a6;padding-left:12px}.brief-item b{display:block;color:#73e5c3;font-size:11px;text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px}.brief-item span{font-size:13px;line-height:1.4;color:#e8f1f6}
 .section-kicker{color:#07865f;font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;margin-top:18px}.empty-chart{height:220px;display:flex;align-items:center;justify-content:center;text-align:center;background:#f7fbf9;border:1px dashed #b8decf;border-radius:12px;color:#527065;font-size:13px}
+div[data-testid="stPopover"]>button{font:700 29px 'Space Grotesk'!important;color:#18263b!important;border:0!important;background:transparent!important;padding:0!important;min-height:38px!important;justify-content:flex-start!important}div[data-testid="stPopover"]>button:hover{color:#07966b!important}
 div[data-testid="stMetric"]{background:#f8fafc;border:1px solid #e4eaf1;padding:14px;border-radius:12px}div[data-testid="stExpander"]{background:#ffffff;border:1px solid #e0e7ef;border-radius:12px}.stButton>button{border-radius:9px;font-weight:700;border:1px solid #cbd6e2;background:#ffffff;color:#1d5f50}.stButton>button[kind="primary"]{background:#0f9d75;color:#ffffff;border:0}[data-testid="stAlert"]{border-radius:11px}button[data-baseweb="tab"]{color:#526277!important}button[data-baseweb="tab"][aria-selected="true"]{color:#087a59!important}hr{border-color:#e4eaf1!important}
 </style>""", unsafe_allow_html=True)
 
@@ -94,13 +95,18 @@ kpi_explanations={
     "Protected lineage":("Formula",f"Count of predecessor accounts with a populated chow_current_account field: {chow_links}.","Source","CRM account lineage fields.","Why it matters","Confirms financial history remains on the predecessor while the current owner is linked separately."),
     "Duplicate controls":("Formula",f"Inactive CRM accounts that contain duplicate_of_account: {duplicates}.","Source","CRM status and duplicate linkage fields.","Why it matters","Confirms duplicates are preserved for history but excluded from active matching."),
 }
+def clickable_number(label,value,note,explanation):
+    with st.container(border=True):
+        st.markdown(f'<div class="label">{label}</div>',unsafe_allow_html=True)
+        with st.popover(str(value)):
+            st.markdown(explanation)
+        st.markdown(f'<div class="note">{note}</div>',unsafe_allow_html=True)
+
 for start in (0,3):
     for col,(label,value,note,cls) in zip(st.columns(3),cards[start:start+3]):
         with col:
-            st.markdown(f'<div class="card"><div class="label">{label}</div><div class="value {cls}">{value}</div><div class="note">{note}</div></div>',unsafe_allow_html=True)
-            with st.popover("ⓘ How this number was calculated"):
-                parts=kpi_explanations[label]
-                st.markdown(f"**{parts[0]}**  \n{parts[1]}\n\n**{parts[2]}**  \n{parts[3]}\n\n**{parts[4]}**  \n{parts[5]}")
+            parts=kpi_explanations[label]
+            clickable_number(label,value,note,f"**{parts[0]}**  \n{parts[1]}\n\n**{parts[2]}**  \n{parts[3]}\n\n**{parts[4]}**  \n{parts[5]}")
 
 overview, review, lineage, audit = st.tabs(["Executive Dashboard",f"Review Queue ({len(proposals)})","Ownership Lineage","Audit & Export"])
 with overview:
@@ -111,8 +117,6 @@ with overview:
     <div class="brief-item"><b>What needs attention</b><span>{decision_message}. Highest current risk: {top_risk}.</span></div>
     <div class="brief-item"><b>What is protected</b><span>{chow_links} financial lineage links and {duplicates} duplicate controls remain preserved.</span></div>
     </div></div>''',unsafe_allow_html=True)
-    with st.popover("ⓘ Explain the executive briefing"):
-        st.markdown("**What happened** combines the scraper count and CRM record count.\n\n**What needs attention** comes from unresolved proposal fingerprints, ordered Critical → High → Medium → Low.\n\n**What is protected** counts persisted CHOW and duplicate-control links in CRM—not pending recommendations.")
     st.markdown('<div class="section-kicker">Decision intelligence</div>',unsafe_allow_html=True)
     chart_left, chart_right = st.columns(2)
     with chart_left:
@@ -120,43 +124,50 @@ with overview:
         risk_order=["Critical","High","Medium","Low"]
         risk_data=[{"Risk":r,"Decisions":sum(p["risk"]==r for p in proposals),"Order":i} for i,r in enumerate(risk_order)]
         if proposals:
+            risk_pick=alt.selection_point(fields=["Risk"],name="risk_pick",on="click")
             risk_chart=alt.Chart(alt.Data(values=risk_data)).mark_bar(cornerRadiusEnd=5,size=28).encode(
                 x=alt.X("Decisions:Q",title="Open decisions",axis=alt.Axis(tickMinStep=1)),
                 y=alt.Y("Risk:N",sort=risk_order,title=None),
                 color=alt.Color("Risk:N",scale=alt.Scale(domain=risk_order,range=["#dc4c4c","#ec8d3c","#e2b33c","#5c8fd6"]),legend=None),
-                tooltip=["Risk:N","Decisions:Q"]
-            ).properties(height=220)
-            st.altair_chart(risk_chart,use_container_width=True)
+                tooltip=["Risk:N","Decisions:Q"],
+                opacity=alt.condition(risk_pick,alt.value(1),alt.value(.65))
+            ).add_params(risk_pick).properties(height=220)
+            risk_event=st.altair_chart(risk_chart,use_container_width=True,on_select="rerun",selection_mode="risk_pick",key="risk_chart")
+            picked=risk_event.get("selection",{}).get("risk_pick",[]) if risk_event else []
+            if picked:
+                selected_risk=picked[0].get("Risk","Selected")
+                selected_count=next((x["Decisions"] for x in risk_data if x["Risk"]==selected_risk),0)
+                st.info(f"{selected_risk}: {selected_count} unresolved decision(s). These counts come directly from current proposal risk labels; Critical items are reviewed first because they may affect revenue or AR lineage.")
         else: st.markdown('<div class="empty-chart"><b>✓ No open risk</b><br>The reconciliation is complete.</div>',unsafe_allow_html=True)
-        with st.popover("ⓘ How to read this chart"):
-            st.markdown("Each bar counts unresolved proposals with that risk label. **Critical** events appear first because they may affect revenue or AR lineage. Hover over a bar for its exact count. Zero-value categories remain visible so reviewers can confirm the full risk scale was checked.")
         st.markdown('</div>',unsafe_allow_html=True)
     with chart_right:
         st.markdown('<div class="panel"><div class="pt">CRM account composition</div><div class="ps">Operational state of the account universe</div>',unsafe_allow_html=True)
         statuses=Counter(str(a.get("status") or "Unknown").title() for a in accounts)
         status_data=[{"Status":k,"Accounts":v} for k,v in statuses.items()]
+        status_pick=alt.selection_point(fields=["Status"],name="status_pick",on="click")
         donut=alt.Chart(alt.Data(values=status_data)).mark_arc(innerRadius=58,outerRadius=92).encode(
             theta=alt.Theta("Accounts:Q"),
             color=alt.Color("Status:N",scale=alt.Scale(range=["#11a579","#6f86a5","#efb34c","#d75b63","#8b6fc2"]),legend=alt.Legend(title=None,orient="bottom")),
-            tooltip=["Status:N","Accounts:Q"]
-        ).properties(height=220)
-        st.altair_chart(donut,use_container_width=True)
-        with st.popover("ⓘ How to read this chart"):
-            st.markdown(f"Each slice is the count of CRM records grouped by their current `status` field. The total across all slices is **{len(accounts)} accounts**. Hover over a slice for the exact status and count. This chart describes CRM composition; it does not represent proposal risk.")
+            tooltip=["Status:N","Accounts:Q"],opacity=alt.condition(status_pick,alt.value(1),alt.value(.65))
+        ).add_params(status_pick).properties(height=220)
+        status_event=st.altair_chart(donut,use_container_width=True,on_select="rerun",selection_mode="status_pick",key="status_chart")
+        status_selected=status_event.get("selection",{}).get("status_pick",[]) if status_event else []
+        if status_selected:
+            chosen=status_selected[0].get("Status","Selected"); chosen_count=statuses.get(chosen,0)
+            st.info(f"{chosen}: {chosen_count} of {len(accounts)} CRM accounts. Each slice is calculated by grouping the loaded CRM records by their current status field.")
         st.markdown('</div>',unsafe_allow_html=True)
     st.markdown('<div class="section-kicker">How the system reached this answer</div>',unsafe_allow_html=True)
     left,mid,right=st.columns([1.1,1,1])
     with left:
         st.markdown('<div class="panel"><div class="pt">Agent run</div><div class="ps">Every stage produces inspectable evidence</div>',unsafe_allow_html=True)
         for n,title,copy in [(1,"Discover",f"Scraped {len(locations)} live communities"),(2,"Normalize","Standardized names, addresses and care types"),(3,"Resolve",f"Compared against {len(accounts)} CRM accounts"),(4,"Guard","Applied AR-aware CHOW and duplicate policies"),(5,"Escalate",f"Routed {len(proposals)} decisions to human review")]: st.markdown(f'<div class="step"><div class="num">{n}</div><div class="copy"><b>{title}</b><span>{copy}</span></div></div>',unsafe_allow_html=True)
-        with st.popover("ⓘ Explain all five stages"):
-            st.markdown("**1 · Discover:** scrape the live directory.\n\n**2 · Normalize:** standardize names, addresses, ZIP codes, and care types.\n\n**3 · Resolve:** score explainable identity evidence.\n\n**4 · Guard:** enforce duplicate and CHOW financial rules.\n\n**5 · Escalate:** create human-review proposals; never write automatically.")
         st.markdown('</div>',unsafe_allow_html=True)
     with mid:
         st.markdown('<div class="panel"><div class="pt">Control posture</div><div class="ps">Current outcomes after policy enforcement</div>',unsafe_allow_html=True)
-        st.metric("CHOW-linked predecessors",chow_links); st.metric("Resolved duplicate records",duplicates); st.metric("Ownership investigations",needs_review); st.metric("AR currently at risk",f"${protected:,.0f}")
-        with st.popover("ⓘ Explain control-posture numbers"):
-            st.markdown(f"**CHOW-linked predecessors ({chow_links}):** records with `chow_current_account`.\n\n**Resolved duplicates ({duplicates}):** Inactive records with `duplicate_of_account`.\n\n**Investigations ({needs_review}):** records whose status is `Needs Review`.\n\n**AR at risk (${protected:,.0f}):** outstanding AR summed only across currently open CHOW proposals.")
+        clickable_number("CHOW-linked predecessors",chow_links,"Financial lineage links","Count of CRM records with a populated `chow_current_account` field.")
+        clickable_number("Resolved duplicate records",duplicates,"Inactive duplicate controls","Count of Inactive CRM records with a populated `duplicate_of_account` field.")
+        clickable_number("Ownership investigations",needs_review,"Records requiring investigation","Count of CRM records whose current status is `Needs Review`.")
+        clickable_number("AR currently at risk",f"${protected:,.0f}","Open CHOW proposals only","Sum of `outstanding_ar` across currently unresolved CHOW proposals.")
         st.markdown('</div>',unsafe_allow_html=True)
     with right:
         st.markdown('<div class="panel"><div class="aihead"><div class="pt">✦ AI Ownership Assistant</div><span class="aibadge">GROUNDED</span></div><div class="ps">Ask questions about this scan in plain English</div>',unsafe_allow_html=True)
@@ -190,8 +201,6 @@ with overview:
         st.markdown('<div class="privacy">Evidence-grounded guidance only · The assistant cannot approve or write CRM changes</div></div>',unsafe_allow_html=True)
 
 with review:
-    with st.popover("ⓘ Where the Review Queue number comes from"):
-        st.markdown(f"The tab shows **{len(proposals)}** because the matcher produced that many unresolved proposal fingerprints after removing decisions already stored in the audit ledger. Each proposal must contain a risk level, explanation, supporting evidence, and proposed API plan before it appears here.")
     if not proposals:
         st.success("Zero open decisions. The pipeline was rerun safely after write-back.")
         st.download_button("Download verified CRM snapshot",data=json.dumps({"accounts":accounts},indent=2,default=str),file_name="crm_accounts_verified.json",mime="application/json",use_container_width=False)
@@ -210,9 +219,10 @@ with lineage:
     chow=[a for a in accounts if a.get("chow_current_account")]
     if chow:
         lifetime_total=sum(float(a.get('lifetime_revenue') or 0) for a in chow); ar_total=sum(float(a.get('outstanding_ar') or 0) for a in chow)
-        c1,c2,c3=st.columns(3); c1.metric("Protected predecessors",len(chow)); c2.metric("Lifetime revenue preserved",f"${lifetime_total:,.0f}"); c3.metric("Outstanding AR protected",f"${ar_total:,.0f}")
-        with st.popover("ⓘ Explain lineage totals"):
-            st.markdown(f"**Protected predecessors ({len(chow)}):** accounts with a current-account CHOW link.\n\n**Lifetime revenue (${lifetime_total:,.0f}):** sum of `lifetime_revenue` across those predecessors.\n\n**Outstanding AR (${ar_total:,.0f}):** sum of `outstanding_ar` across the same records.\n\nThese values stay on predecessor records; the control prevents direct re-parenting.")
+        c1,c2,c3=st.columns(3)
+        with c1: clickable_number("Protected predecessors",len(chow),"CHOW-linked accounts","Count of predecessor records with a populated `chow_current_account` link.")
+        with c2: clickable_number("Lifetime revenue preserved",f"${lifetime_total:,.0f}","Financial history retained","Sum of `lifetime_revenue` across all CHOW-linked predecessor records.")
+        with c3: clickable_number("Outstanding AR protected",f"${ar_total:,.0f}","Receivables retained","Sum of `outstanding_ar` across the same CHOW-linked predecessors.")
         st.dataframe([{"Predecessor":a.get("name"),"Predecessor ID":a.get("id"),"Current account ID":a.get("chow_current_account"),"Lifetime revenue":a.get("lifetime_revenue"),"Outstanding AR":a.get("outstanding_ar"),"Control":"Preserved — no re-parent"} for a in chow],use_container_width=True,hide_index=True)
     else: st.info("No CHOW predecessor links are present.")
 
@@ -222,13 +232,12 @@ with audit:
     x2.download_button("Download decision ledger",data=json.dumps(store.audit_rows(),indent=2,default=str),file_name="ownership_decision_ledger.json",mime="application/json",use_container_width=True)
     st.subheader("Human decision ledger")
     audit_rows=store.audit_rows()
-    with st.popover("ⓘ What is recorded in this ledger"):
-        st.markdown(f"The ledger currently contains **{len(audit_rows)} decision(s)**. A row is created only when a reviewer clicks **Approve** or **Reject**. Applied approvals also receive an application timestamp and API result. The ledger is stored locally in `ownershipos.db` and is deliberately excluded from the public GitHub repository.")
     if audit_rows:
         approved_count=sum(r.get("decision")=="Approved" for r in audit_rows); rejected_count=sum(r.get("decision")=="Rejected" for r in audit_rows); applied_count=sum(bool(r.get("applied_at")) for r in audit_rows)
-        a1,a2,a3=st.columns(3); a1.metric("Approved",approved_count); a2.metric("Rejected",rejected_count); a3.metric("Applied",applied_count)
-        with st.popover("ⓘ Explain ledger totals"):
-            st.markdown(f"**Approved ({approved_count}):** rows whose decision equals Approved.\n\n**Rejected ({rejected_count}):** rows whose decision equals Rejected.\n\n**Applied ({applied_count}):** approved rows with a non-empty `applied_at` timestamp.")
+        a1,a2,a3=st.columns(3)
+        with a1: clickable_number("Approved",approved_count,"Human-approved proposals","Count of ledger rows whose `decision` field equals Approved.")
+        with a2: clickable_number("Rejected",rejected_count,"Human-rejected proposals","Count of ledger rows whose `decision` field equals Rejected.")
+        with a3: clickable_number("Applied",applied_count,"Completed CRM writes","Count of approved ledger rows containing an `applied_at` timestamp.")
         st.dataframe(audit_rows,use_container_width=True,hide_index=True)
     else:
         st.info("No decisions have been recorded in this local workspace yet. The ledger starts when a reviewer approves or rejects a proposal; an empty ledger does not mean the scan failed.")
@@ -244,9 +253,8 @@ with audit:
             if proposals: st.warning(f"Open the **Review Queue ({len(proposals)})** tab above. Start with Critical items, inspect the evidence, then click Approve or Reject.")
             else: st.success("There are currently zero decisions to review. Run a new scan after the CRM or website data changes.")
 
-st.divider(); pending=store.pending_approvals(); st.subheader("Controlled write-back"); st.caption(f"{len(pending)} approved proposal(s) waiting. Credentials exist only in this browser session.")
-with st.popover("ⓘ Why this button is controlled"):
-    st.markdown(f"The apply button activates only when **all three conditions** are true:\n\n1. At least one proposal is approved (currently **{len(pending)}**)\n2. A live CRM credential is present\n3. The authorization checkbox is selected\n\nOnly approved API actions are executed; rejected and unresolved proposals are never written.")
+st.divider(); pending=store.pending_approvals(); st.subheader("Controlled write-back")
+clickable_number("Approved proposals waiting",len(pending),"Credentials exist only in this browser session","Count of Approved ledger entries that do not yet have an `applied_at` timestamp. The Apply button also requires a live credential and the authorization checkbox.")
 confirm=st.checkbox("I reviewed the evidence and authorize these approved CRM changes")
 if st.button("Apply approved changes",disabled=not(confirm and token and pending),type="primary"):
     client=CRMClient(API,token); progress=st.progress(0)
